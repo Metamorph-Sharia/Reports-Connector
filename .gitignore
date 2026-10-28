@@ -1,0 +1,19 @@
+# What the connector holds: the reports as downloaded, MinerU readings, the database, exports (README: State)
+/data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+.claude/

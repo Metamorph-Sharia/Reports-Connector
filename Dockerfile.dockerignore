@@ -1,0 +1,12 @@
+# Only what Reports-Connector/Dockerfile copies: the build context is the whole workspace, data included.
+*
+!Metamorph-Knowledge-Platform/packages/metamorph-contract
+!Metamorph-Knowledge-Platform/packages/metamorph-market-contract
+!Metamorph-Knowledge-Platform/packages/metamorph-pdf-text
+!Reports-Connector/pyproject.toml
+!Reports-Connector/uv.lock
+!Reports-Connector/README.md
+!Reports-Connector/src
+**/__pycache__
+**/.venv
+**/.pytest_cache
