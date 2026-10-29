@@ -1,4 +1,5 @@
-"""`reports`: sync OJK's LPKSI listing or import a report, read, show, export, check health (README.md)."""
+"""`reports`: sync OJK's LPKSI listing and press releases or import a report, read, show, export, check health
+(README.md)."""
 
 from __future__ import annotations
 
@@ -28,9 +29,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="reports", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(required=True, metavar="COMMAND")
-    commands.add_parser("sync", help="import every LPKSI edition OJK's listing has that isn't kept").set_defaults(
-        run=_sync
-    )
+    commands.add_parser(
+        "sync", help="import every LPKSI edition OJK's listing has that isn't kept, then keep every new press release"
+    ).set_defaults(run=_sync)
     imported = commands.add_parser("import", help="keep and read a report's PDF, downloaded by a person")
     imported.add_argument("file", type=Path, help="the report's PDF, as published")
     imported.add_argument("--id", required=True, help="issuer:family:edition, or issuer:family:year:name")
@@ -56,6 +57,8 @@ def _parser() -> argparse.ArgumentParser:
 def _sync(app: Application, _: argparse.Namespace) -> int:
     for synced in app.sync():
         print(f"{synced.report_id or synced.url}: {synced.note}", flush=True)
+    for release in app.sync_releases():
+        print(f"{release.release_id or release.url}: {release.note}", flush=True)
     return EXIT_OK
 
 

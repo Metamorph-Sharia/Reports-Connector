@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
-from fakes import NOW, FakeListing, FakeReader
-from metamorph_market import Bundle, ReportRecord, TextMethod
+from fakes import NOW, FakeListing, FakeReader, FakeReleases, listed
+from metamorph_market import Bundle, ReleaseRecord, ReportRecord, TextMethod
 
 from reports.adapters.storage.market_bundle import MarketBundleExporter
 from reports.adapters.storage.sqlite import SqliteStore
 from reports.application.use_cases.export_bundle import ExportBundle
 from reports.application.use_cases.import_report import ImportReport
 from reports.application.use_cases.sync_lpksi import SyncLpksi
+from reports.application.use_cases.sync_releases import SyncReleases
 
 
 def synced(data: Path, reader: FakeReader | None = None) -> SqliteStore:
@@ -46,7 +47,7 @@ def test_an_export_is_a_valid_bundle_of_report_records(tmp_path: Path) -> None:
     count = ExportBundle(store, MarketBundleExporter("0.1.0"))(tmp_path / "bundle", "run-1")
 
     entries = list(Bundle(tmp_path / "bundle").entries())
-    assert count == len(entries) == 2
+    assert count == len(entries) == 2  # no release synced
     assert all(entry.is_valid for entry in entries)
     record = entries[1].record
     assert isinstance(record, ReportRecord)
@@ -54,3 +55,39 @@ def test_an_export_is_a_valid_bundle_of_report_records(tmp_path: Path) -> None:
         "ojk:lpksi:2025", TextMethod.TEXT_LAYER, "reports"
     )
     assert Bundle(tmp_path / "bundle").blob_path(record.text.file).read_bytes().startswith(b"<!-- page 1 -->")
+
+
+def with_releases(data: Path) -> SqliteStore:
+    store = synced(data)
+    pages = [[listed("OJK-Cabut-Izin-Usaha-PT-Porto-Ventura-Kapital", "8 Oktober 2026"),
+              listed("Siaran-Pers-Akhir-Tahun", "30 Desember 2019")]]
+    list(SyncReleases(FakeReleases(pages), store, since=date(2020, 1, 1), now=lambda: datetime.fromisoformat(NOW))())
+    return store
+
+
+def test_a_release_and_the_walk_are_kept_across_connections(tmp_path: Path) -> None:
+    kept = with_releases(tmp_path).release("ojk:siaran-pers:2026:ojk-cabut-izin-usaha-pt-porto-ventura-kapital")
+
+    again = SqliteStore(tmp_path)
+
+    assert again.releases() == [kept]
+    assert again.file(kept.body).startswith(b'<div id="summary">')
+    assert again.walked_back() == "2020-01-01"
+
+
+def test_an_export_carries_every_release_beside_the_reports(tmp_path: Path) -> None:
+    store = with_releases(tmp_path / "data")
+
+    count = ExportBundle(store, MarketBundleExporter("0.2.0"))(tmp_path / "bundle", "run-1")
+
+    bundle = Bundle(tmp_path / "bundle")
+    entries = list(bundle.entries())
+    assert count == len(entries) == 3
+    assert all(entry.is_valid for entry in entries)
+    (release,) = [entry.record for entry in entries if isinstance(entry.record, ReleaseRecord)]
+    assert release.release.id == "ojk:siaran-pers:2026:ojk-cabut-izin-usaha-pt-porto-ventura-kapital"
+    assert (release.release.number, release.release.published_on) == ("SP 1/DKPU/OJK/X/2026", "2026-10-08")
+    assert release.text.startswith("SP 1/DKPU/OJK/X/2026")
+    assert release.source.url == release.files[0].source_url
+    assert release.source_fields["pdf"].endswith("/OJK-Cabut-Izin-Usaha-PT-Porto-Ventura-Kapital.pdf")
+    assert bundle.blob_path(release.files[0].sha256).read_bytes().startswith(b'<div id="summary">')

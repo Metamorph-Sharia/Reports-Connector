@@ -1,4 +1,5 @@
-"""Export: every read report, with its PDF and its text, as one market bundle (a full snapshot)."""
+"""Export: every read report, with its PDF and its text, and every release, with its body, as one market bundle
+(a full snapshot)."""
 
 from __future__ import annotations
 
@@ -14,5 +15,6 @@ class ExportBundle:
 
     def __call__(self, out: Path, run_id: str) -> int:
         read = [kept for kept in self.store.reports() if kept.reading is not None]
-        files = {sha: self.store.file(sha) for kept in read for sha in (kept.pdf, kept.reading.text)}
-        return self.exporter.export(read, files, out, run_id)
+        releases = self.store.releases()
+        shas = [sha for kept in read for sha in (kept.pdf, kept.reading.text)] + [kept.body for kept in releases]
+        return self.exporter.export(read, releases, {sha: self.store.file(sha) for sha in shas}, out, run_id)

@@ -1,0 +1,73 @@
+#!/bin/bash
+# OJK's press releases since RELEASES_SINCE (2020-01-01), first collected in a Docker container, so the walk outlives
+# the terminal (README: The first collection of releases).
+#   scripts/backfill start    start it, or resume it where it stopped: kept releases are never asked for again
+#   scripts/backfill status   progress, the pace, an estimate of the time left, and the last lines it printed
+#   scripts/backfill log      follow what it prints (Ctrl-C leaves it running)
+#   scripts/backfill stop     stop it; `start` resumes it
+# It runs `reports sync` from the image metamorph/reports:dev on this repository's data/: LPKSI's editions, all kept,
+# cost their pages only. Keep Airflow's ingest_reports paused while it runs: both would sync into the same store.
+# A refusal stops it, and nothing is retried: look at the last lines before starting it again.
+set -euo pipefail
+
+HERE=$(cd "$(dirname "$0")/.." && pwd)
+NAME=reports-backfill
+IMAGE=metamorph/reports:dev
+STORE=$HERE/data/reports.sqlite
+EXPECTED=1180  # releases listed since 2020-01-01, about 118 listing pages of ten, surveyed 2026-10-28: an estimate
+
+state() {
+  if docker container inspect "$NAME" >/dev/null 2>&1; then
+    docker container inspect -f '{{.State.Status}}' "$NAME"
+  else
+    echo absent
+  fi
+}
+
+start() {
+  case $(state) in
+    running) echo "$NAME is already running"; return ;;
+    absent) ;;
+    *) docker rm "$NAME" >/dev/null ;;  # a fresh container, so it runs the image as built now
+  esac
+  docker run -d --init --name "$NAME" \
+    -e PYTHONUNBUFFERED=1 -e REPORTS_CONTACT="${REPORTS_CONTACT:-}" -e RELEASES_SINCE="${RELEASES_SINCE:-}" \
+    -v "$HERE/data:/workspace/Reports-Connector/data" \
+    --entrypoint sh "$IMAGE" -c 'reports sync; code=$?; echo "=== exit $code $(date -u +%FT%TZ)"; exit $code' >/dev/null
+  echo "$NAME started. Follow it with: scripts/backfill status, or scripts/backfill log"
+}
+
+status() {
+  local now
+  now=$(state)
+  case $now in
+    running) echo "$NAME: running since $(docker container inspect -f '{{.State.StartedAt}}' "$NAME" | cut -c1-19)Z" ;;
+    absent) echo "$NAME: not started" ;;
+    *)
+      if docker logs "$NAME" 2>&1 | grep -q '^=== exit 0'; then echo "$NAME: FINISHED"
+      else echo "$NAME: stopped ($now). Look at the last lines, then resume it with: scripts/backfill start"; fi ;;
+  esac
+  sqlite3 -separator ' ' "$STORE" "
+    WITH kept AS (SELECT count(*) AS total, min(published_on) AS oldest, max(published_on) AS newest,
+                         sum(fetched_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '-10 minutes')) AS last10
+                  FROM release)
+    SELECT 'releases kept: ' || total || ' of about $EXPECTED, ' || coalesce(oldest, '-') || ' to '
+           || coalesce(newest, '-') || char(10)
+        || 'the listing walked whole back to: ' || coalesce((SELECT min(since) FROM walk), 'not yet') || char(10)
+        || 'kept in the last 10 minutes: ' || coalesce(last10, 0)
+        || CASE WHEN coalesce(last10, 0) > 0 AND total < $EXPECTED
+                THEN ', so about ' || (($EXPECTED - total) * 10 / last10) || ' min left' ELSE '' END
+    FROM kept"
+  if [ "$now" != absent ]; then
+    echo "last lines:"
+    docker logs --tail 4 "$NAME" 2>&1 | cut -c1-160 | sed 's/^/  /'
+  fi
+}
+
+case "${1:-status}" in
+  start) start ;;
+  status) status ;;
+  log) docker logs -f --tail 20 "$NAME" ;;
+  stop) docker stop -t 20 "$NAME" >/dev/null && echo "$NAME stopped. Resume it with: scripts/backfill start" ;;
+  *) echo "usage: scripts/backfill start | status | log | stop" >&2; exit 2 ;;
+esac

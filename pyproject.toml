@@ -1,7 +1,7 @@
 [project]
 name = "reports"
-version = "0.1.0"
-description = "Regulators' reports, roadmaps and masterplans (LPKSI, KEKSI, RP3SI, …), read and exported under Metamorph's market contract."
+version = "0.2.0"
+description = "Regulators' reports, roadmaps and masterplans (LPKSI, KEKSI, RP3SI, …) and OJK's press releases, exported under Metamorph's market contract."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

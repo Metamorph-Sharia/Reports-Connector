@@ -1,5 +1,5 @@
-"""Read reports → market contract `report` records, written with the contract's BundleWriter: a full snapshot,
-each PDF and each text a blob."""
+"""Read reports → market contract `report` records, and releases → `release` records, written with the contract's
+BundleWriter: a full snapshot, each PDF, each text and each release's body a blob."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from metamorph_market import (
     Extraction,
     FileRef,
     FileRole,
+    Release,
+    ReleaseRecord,
     Report,
     ReportRecord,
     ReportText,
@@ -18,23 +20,45 @@ from metamorph_market import (
     TextMethod,
 )
 
-from reports.application.ports import KeptReport
+from reports.application.ports import KeptRelease, KeptReport
 
 CONNECTOR = "reports"
 PDF = "application/pdf"
+HTML = "text/html; charset=utf-8"
 
 
 class MarketBundleExporter:
     def __init__(self, connector_version: str) -> None:
         self.connector_version = connector_version
 
-    def export(self, reports: Sequence[KeptReport], files: Mapping[str, bytes], out: Path, run_id: str) -> int:
+    def export(
+        self,
+        reports: Sequence[KeptReport],
+        releases: Sequence[KeptRelease],
+        files: Mapping[str, bytes],
+        out: Path,
+        run_id: str,
+    ) -> int:
         with BundleWriter(out, connector=CONNECTOR, connector_version=self.connector_version, run_id=run_id) as bundle:
             for sha in sorted(files):
                 bundle.put_blob(files[sha])
             for kept in reports:
                 bundle.add(self._record(kept))
-        return len(reports)
+            for kept in releases:
+                bundle.add(self._release(kept))
+        return len(reports) + len(releases)
+
+    def _release(self, kept: KeptRelease) -> ReleaseRecord:
+        release = kept.release
+        return ReleaseRecord(
+            source=SourceRef(CONNECTOR, self.connector_version, kept.page_url.rsplit("/", 1)[-1].removesuffix(".aspx"),
+                             kept.page_url, kept.fetched_at),
+            release=Release(release.id, release.issuer, release.number, release.title, release.published_on,
+                            release.language),
+            text=kept.text,
+            files=(FileRef(kept.body, FileRole.SOURCE_PAGE, HTML, kept.page_url, release.published_on),),
+            source_fields={"pdf": kept.pdf_url},
+        )
 
     def _record(self, kept: KeptReport) -> ReportRecord:
         report, reading = kept.report, kept.reading

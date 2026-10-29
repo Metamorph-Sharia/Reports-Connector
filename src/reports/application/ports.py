@@ -1,13 +1,15 @@
-"""What the use cases need from outside: OJK's LPKSI listing, something that reads a PDF's text, somewhere to keep
-reports, and something that writes a bundle. Each port has a real adapter and an in-memory fake in the tests."""
+"""What the use cases need from outside: OJK's LPKSI listing and press releases, something that reads a PDF's text,
+somewhere to keep reports and releases, and something that writes a bundle. Each port has a real adapter and an
+in-memory fake in the tests."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from reports.domain.releases import Release
 from reports.domain.reports import Report
 
 
@@ -89,6 +91,22 @@ class Store(Protocol):
 
     def last_synced(self) -> str | None: ...
 
+    def keep_release(self, kept: KeptRelease) -> None: ...
+
+    def release(self, release_id: str) -> KeptRelease | None: ...
+
+    def releases(self) -> list[KeptRelease]:
+        """Newest first."""
+        ...
+
+    def walked_back_to(self, since: str) -> None:
+        """Records that the release listing was walked whole back to this ISO date."""
+        ...
+
+    def walked_back(self) -> str | None:
+        """The earliest date the release listing was walked whole back to; None until a walk reached its end."""
+        ...
+
 
 @dataclass(frozen=True)
 class ReportPage:
@@ -108,7 +126,49 @@ class LpksiListing(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class Listed:
+    """A release as the listing shows it."""
+
+    url: str  # its page, absolute
+    title: str  # as listed
+    listed: str  # its date as listed, e.g. "8 Oktober 2026"
+
+
+@dataclass(frozen=True)
+class ReleasePage:
+    body: str  # the release as its page publishes it (HTML); "" when the page holds none
+    text: str  # its words, paragraphs separated by blank lines
+    pdf: str | None  # the release as a PDF, when the page links one
+
+
+class ReleaseListing(Protocol):
+    def pages(self) -> Iterator[list[Listed]]:
+        """The listing's pages, newest first, through its own pager. Raises SourceRefused when a page is refused
+        or the pager doesn't move forward."""
+        ...
+
+    def release(self, url: str) -> ReleasePage: ...
+
+
+@dataclass(frozen=True)
+class KeptRelease:
+    release: Release
+    body: str  # the body's sha256
+    text: str  # its words
+    page_url: str
+    pdf_url: str | None
+    fetched_at: str  # ISO datetime
+
+
 class BundleExporter(Protocol):
-    def export(self, reports: Sequence[KeptReport], files: Mapping[str, bytes], out: Path, run_id: str) -> int:
-        """Writes one bundle of every read report; returns the number of records."""
+    def export(
+        self,
+        reports: Sequence[KeptReport],
+        releases: Sequence[KeptRelease],
+        files: Mapping[str, bytes],
+        out: Path,
+        run_id: str,
+    ) -> int:
+        """Writes one bundle of every read report and every release; returns the number of records."""
         ...

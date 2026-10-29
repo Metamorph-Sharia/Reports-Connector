@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from reports.adapters.web.ojk_lpksi import LISTING, OjkLpksi
+from reports.adapters.web.ojk_site import OjkSite
 from reports.application.ports import SourceRefused
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -36,8 +37,8 @@ class Site:
 
 
 def listing(site: Site, sleeps: list[float] | None = None) -> OjkLpksi:
-    return OjkLpksi(user_agent="reports/0.1.0", transport=httpx.MockTransport(site),
-                    sleep=(sleeps if sleeps is not None else []).append, clock=lambda: 0.0)
+    return OjkLpksi(OjkSite(user_agent="reports/0.1.0", transport=httpx.MockTransport(site),
+                            sleep=(sleeps if sleeps is not None else []).append, clock=lambda: 0.0))
 
 
 def test_the_listing_links_ten_edition_pages_from_2016() -> None:

@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from dataclasses import replace
 
-from reports.application.ports import KeptReport, ReadingFailed, ReadText, ReportPage, SourceRefused
+from reports.application.ports import (
+    KeptRelease,
+    KeptReport,
+    Listed,
+    ReadingFailed,
+    ReadText,
+    ReleasePage,
+    ReportPage,
+    SourceRefused,
+)
 
 NOW = "2026-10-28T09:00:00+00:00"
 BASE = "https://ojk.go.id/id/kanal/syariah/data-dan-statistik/laporan-perkembangan-keuangan-syariah-indonesia"
@@ -68,11 +78,47 @@ class FakeReader:
                         "mineru", "4.0.12", "basic", "auto", 0, 0)
 
 
+RELEASES = "https://ojk.go.id/id/berita-dan-kegiatan/siaran-pers/Pages"
+
+
+def listed(name: str, day: str) -> Listed:
+    return Listed(f"{RELEASES}/{name}.aspx", f"Siaran Pers: {name}", day)
+
+
+class FakeReleases:
+    """The release listing as pages of Listed; a release's page names it. `refuse` makes one release refused."""
+
+    def __init__(self, listing: list[list[Listed]], refuse: str | None = None,
+                 pages: dict[str, ReleasePage] | None = None) -> None:
+        self.listing = listing
+        self.refuse = refuse
+        self.saved = pages or {}
+        self.pages_asked = 0
+        self.releases_asked: list[str] = []
+
+    def pages(self) -> Iterator[list[Listed]]:
+        for page in self.listing:
+            self.pages_asked += 1
+            yield page
+
+    def release(self, url: str) -> ReleasePage:
+        name = url.rsplit("/", 1)[-1].removesuffix(".aspx")
+        self.releases_asked.append(name)
+        if name == self.refuse:
+            raise SourceRefused(f"{url}: HTTP 403")
+        if name in self.saved:
+            return self.saved[name]
+        return ReleasePage(f'<div id="summary"><p>{name}</p></div>', f"SP 1/DKPU/OJK/X/2026\n\nSIARAN PERS\n\n{name}",
+                           f"{RELEASES.replace('Pages', 'Documents')}/{name}.pdf")
+
+
 class MemoryStore:
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
         self.kept: dict[str, KeptReport] = {}
         self.syncs: list[str] = []
+        self.kept_releases: dict[str, KeptRelease] = {}
+        self.walks: list[str] = []
 
     def keep_file(self, data: bytes) -> str:
         sha = hashlib.sha256(data).hexdigest()
@@ -96,6 +142,22 @@ class MemoryStore:
 
     def last_synced(self) -> str | None:
         return self.syncs[-1] if self.syncs else None
+
+    def keep_release(self, kept: KeptRelease) -> None:
+        self.kept_releases[kept.release.id] = kept
+
+    def release(self, release_id: str) -> KeptRelease | None:
+        return self.kept_releases.get(release_id)
+
+    def releases(self) -> list[KeptRelease]:
+        return sorted(self.kept_releases.values(), key=lambda kept: (kept.release.published_on, kept.release.id),
+                      reverse=True)
+
+    def walked_back_to(self, since: str) -> None:
+        self.walks.append(since)
+
+    def walked_back(self) -> str | None:
+        return min(self.walks) if self.walks else None
 
     def unread(self, report_id: str) -> None:
         self.kept[report_id] = replace(self.kept[report_id], reading=None, note="MinerU is unavailable")
