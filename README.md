@@ -103,4 +103,4 @@ docker build -f Reports-Connector/Dockerfile -t metamorph/reports:dev .   # from
 
 Layers, inner to outer: `domain` (what a report is, an LPKSI edition's title; a release's ID, date and number), `application` (ports and use cases), `adapters` (ojk.go.id over one HTTP client: LPKSI's listing, the release listing and its pager, a release's HTML; metamorph-pdf-text, SQLite, the market bundle), then `cli`, `wiring` and `config`. `tests/test_architecture.py` keeps dependencies pointing inward, and OCR MinerU's alone.
 
-Airflow runs `ingest_reports` on Mondays: `reports sync` (LPKSI, then releases), then export, then `metamorph market load --publish`, then discard. That is in the platform's `dags/`.
+Airflow runs `ingest_reports` on Mondays: `reports sync` (LPKSI, then releases), then export, then `metamorph market load`, then discard; the load triggers the platform's `market_publish`, which publishes it. That is in the platform's `dags/`.
